@@ -14,7 +14,75 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      entry_lots: {
+        Row: {
+          barcode: string | null
+          barcode_image_url: string | null
+          created_at: string
+          delivery_note_url: string | null
+          id: string
+          lot_number: string
+          product: string
+          quantity: number
+          supplier: string
+          unit: string
+          user_id: string
+        }
+        Insert: {
+          barcode?: string | null
+          barcode_image_url?: string | null
+          created_at?: string
+          delivery_note_url?: string | null
+          id?: string
+          lot_number: string
+          product: string
+          quantity: number
+          supplier: string
+          unit?: string
+          user_id: string
+        }
+        Update: {
+          barcode?: string | null
+          barcode_image_url?: string | null
+          created_at?: string
+          delivery_note_url?: string | null
+          id?: string
+          lot_number?: string
+          product?: string
+          quantity?: number
+          supplier?: string
+          unit?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          full_name: string | null
+          id: string
+          obrador_code: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          full_name?: string | null
+          id?: string
+          obrador_code?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          full_name?: string | null
+          id?: string
+          obrador_code?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

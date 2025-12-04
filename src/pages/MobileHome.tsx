@@ -1,9 +1,23 @@
-import { PackageOpen, Factory, PackageCheck, History, Monitor } from 'lucide-react';
+import { PackageOpen, Factory, PackageCheck, History, Monitor, LogOut } from 'lucide-react';
 import { MobileHeader } from '@/components/mobile/MobileHeader';
 import { MainMenuButton } from '@/components/mobile/MainMenuButton';
 import { Link } from 'react-router-dom';
+import { useAuth } from '@/hooks/useAuth';
+import { Button } from '@/components/ui/button';
+import { useToast } from '@/hooks/use-toast';
 
 export default function MobileHome() {
+  const { signOut, user } = useAuth();
+  const { toast } = useToast();
+
+  const handleLogout = async () => {
+    await signOut();
+    toast({
+      title: "Sesión cerrada",
+      description: "Has cerrado sesión correctamente",
+    });
+  };
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <MobileHeader title="TraceFood" />
@@ -51,8 +65,24 @@ export default function MobileHome() {
           </span>
         </Link>
 
-        {/* Timestamp */}
-        <div className="mt-4 text-center">
+        {/* Logout Button */}
+        <Button
+          variant="industrial-outline"
+          size="industrial"
+          className="mt-4"
+          onClick={handleLogout}
+        >
+          <LogOut className="h-6 w-6" />
+          <span>Cerrar Sesión</span>
+        </Button>
+
+        {/* User Info & Timestamp */}
+        <div className="mt-4 text-center space-y-1">
+          {user?.email && (
+            <p className="text-xs text-muted-foreground">
+              {user.email}
+            </p>
+          )}
           <p className="text-xs text-muted-foreground font-mono-industrial">
             {new Date().toLocaleString('es-ES', { 
               dateStyle: 'full', 
