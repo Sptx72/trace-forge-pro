@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { 
   Search, Filter, FileDown, PackageOpen, Factory, PackageCheck, 
-  ChevronDown, Home, ArrowUpDown, Eye
+  ChevronDown, Home, ArrowUpDown, Eye, LogOut
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,6 +20,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
 
 type RecordType = 'all' | 'entry' | 'production' | 'output';
 
@@ -52,11 +53,20 @@ const statusConfig: Record<string, { color: string; label: string }> = {
 
 export default function AdminPanel() {
   const { toast } = useToast();
+  const { signOut, user } = useAuth();
   const [filter, setFilter] = useState<RecordType>('all');
   const [search, setSearch] = useState('');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [selectedRecord, setSelectedRecord] = useState<typeof mockRecords[0] | null>(null);
   const [showTraceDialog, setShowTraceDialog] = useState(false);
+
+  const handleLogout = async () => {
+    await signOut();
+    toast({
+      title: "Sesión cerrada",
+      description: "Has cerrado sesión correctamente",
+    });
+  };
 
   const filteredRecords = mockRecords
     .filter(record => {
@@ -161,6 +171,10 @@ export default function AdminPanel() {
                   Volver al Obrador
                 </Button>
               </Link>
+              <Button variant="industrial-outline" size="lg" onClick={handleLogout}>
+                <LogOut className="h-5 w-5 mr-2" />
+                Cerrar Sesión
+              </Button>
             </div>
           </div>
         </div>

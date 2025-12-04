@@ -1,16 +1,19 @@
 import { useState, useRef } from 'react';
-import { Camera, Upload, QrCode, Check, X } from 'lucide-react';
+import { Camera, Upload, Check, X, Loader2 } from 'lucide-react';
 import { MobileHeader } from '@/components/mobile/MobileHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/integrations/supabase/client';
+import { QRScanner } from '@/components/scanner/QRScanner';
 
 export default function EntryPage() {
   const { toast } = useToast();
   const navigate = useNavigate();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { user } = useAuth();
   const photoInputRef = useRef<HTMLInputElement>(null);
   
   const [formData, setFormData] = useState({
@@ -19,41 +22,56 @@ export default function EntryPage() {
     quantity: '',
     unit: 'kg',
     barcode: '',
-    deliveryNotePhoto: null as string | null,
+    deliveryNotePhoto: null as File | null,
   });
   
-  const [isScanning, setIsScanning] = useState(false);
+  const [deliveryNotePreview, setDeliveryNotePreview] = useState<string | null>(null);
+  const [showScanner, setShowScanner] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleScan = () => {
-    setIsScanning(true);
-    // Simulated scan - in production would use camera API
-    setTimeout(() => {
-      const mockBarcode = `84${Math.floor(10000000000 + Math.random() * 90000000000)}`;
-      setFormData(prev => ({ ...prev, barcode: mockBarcode }));
-      setIsScanning(false);
-      toast({
-        title: "Código escaneado",
-        description: `Código: ${mockBarcode}`,
-      });
-    }, 1500);
+  const handleScan = (result: string) => {
+    setFormData(prev => ({ ...prev, barcode: result }));
+    setShowScanner(false);
+    toast({
+      title: "Código escaneado",
+      description: `Código: ${result}`,
+    });
   };
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      setFormData(prev => ({ ...prev, deliveryNotePhoto: file }));
       const reader = new FileReader();
       reader.onloadend = () => {
-        setFormData(prev => ({ ...prev, deliveryNotePhoto: reader.result as string }));
-        toast({
-          title: "Foto subida",
-          description: "Albarán adjuntado correctamente",
-        });
+        setDeliveryNotePreview(reader.result as string);
       };
       reader.readAsDataURL(file);
+      toast({
+        title: "Foto subida",
+        description: "Albarán adjuntado correctamente",
+      });
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const uploadFile = async (file: File, path: string): Promise<string | null> => {
+    const { data, error } = await supabase.storage
+      .from('traceability-files')
+      .upload(path, file);
+    
+    if (error) {
+      console.error('Upload error:', error);
+      return null;
+    }
+    
+    const { data: publicUrl } = supabase.storage
+      .from('traceability-files')
+      .getPublicUrl(data.path);
+    
+    return publicUrl.publicUrl;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!formData.product || !formData.supplier || !formData.quantity) {
@@ -65,20 +83,74 @@ export default function EntryPage() {
       return;
     }
 
-    // Generate lot number
-    const lotNumber = `ENT-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`;
-    
-    toast({
-      title: "Entrada registrada",
-      description: `Lote ${lotNumber} creado correctamente`,
-    });
-    
-    setTimeout(() => navigate('/'), 1000);
+    if (!user) {
+      toast({
+        title: "Error",
+        description: "Debes iniciar sesión para registrar entradas",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      // Generate lot number
+      const lotNumber = `ENT-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
+      
+      // Upload delivery note photo if exists
+      let deliveryNoteUrl: string | null = null;
+      if (formData.deliveryNotePhoto) {
+        const fileName = `delivery-notes/${user.id}/${lotNumber}-${Date.now()}.jpg`;
+        deliveryNoteUrl = await uploadFile(formData.deliveryNotePhoto, fileName);
+      }
+
+      // Insert entry lot into database
+      const { error } = await supabase
+        .from('entry_lots')
+        .insert({
+          user_id: user.id,
+          lot_number: lotNumber,
+          product: formData.product,
+          supplier: formData.supplier,
+          quantity: parseFloat(formData.quantity),
+          unit: formData.unit,
+          barcode: formData.barcode || null,
+          delivery_note_url: deliveryNoteUrl,
+        });
+
+      if (error) {
+        throw error;
+      }
+
+      toast({
+        title: "Entrada registrada",
+        description: `Lote ${lotNumber} creado correctamente`,
+      });
+      
+      setTimeout(() => navigate('/'), 1000);
+    } catch (error: any) {
+      console.error('Error creating entry:', error);
+      toast({
+        title: "Error",
+        description: error.message || "No se pudo registrar la entrada",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <MobileHeader title="Registro de Entrada" showBack />
+      
+      {showScanner && (
+        <QRScanner 
+          onScan={handleScan} 
+          onClose={() => setShowScanner(false)} 
+        />
+      )}
       
       <main className="flex-1 p-4 overflow-auto">
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -92,29 +164,25 @@ export default function EntryPage() {
               variant="industrial"
               size="industrial-xl"
               className="w-full glow-pulse"
-              onClick={handleScan}
-              disabled={isScanning}
+              onClick={() => setShowScanner(true)}
             >
-              {isScanning ? (
-                <div className="flex flex-col items-center gap-2">
-                  <div className="relative">
-                    <QrCode className="h-12 w-12 animate-pulse" />
-                    <div className="scan-line" />
-                  </div>
-                  <span>Escaneando...</span>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center gap-2">
-                  <Camera className="h-12 w-12" />
-                  <span>Escanear QR / Código</span>
-                </div>
-              )}
+              <div className="flex flex-col items-center gap-2">
+                <Camera className="h-12 w-12" />
+                <span>Escanear QR / Código</span>
+              </div>
             </Button>
             
             {formData.barcode && (
               <div className="mt-3 p-3 bg-success/10 border border-success/30 rounded-lg flex items-center gap-2">
                 <Check className="h-5 w-5 text-success" />
                 <span className="font-mono-industrial text-success">{formData.barcode}</span>
+                <button
+                  type="button"
+                  onClick={() => setFormData(prev => ({ ...prev, barcode: '' }))}
+                  className="ml-auto p-1 hover:bg-muted rounded"
+                >
+                  <X className="h-4 w-4 text-muted-foreground" />
+                </button>
               </div>
             )}
           </div>
@@ -140,19 +208,22 @@ export default function EntryPage() {
               onClick={() => photoInputRef.current?.click()}
             >
               <Upload className="h-8 w-8" />
-              <span>{formData.deliveryNotePhoto ? 'Cambiar Foto' : 'Subir Foto'}</span>
+              <span>{deliveryNotePreview ? 'Cambiar Foto' : 'Subir Foto'}</span>
             </Button>
             
-            {formData.deliveryNotePhoto && (
+            {deliveryNotePreview && (
               <div className="mt-3 relative">
                 <img 
-                  src={formData.deliveryNotePhoto} 
+                  src={deliveryNotePreview} 
                   alt="Albarán" 
                   className="w-full h-32 object-cover rounded-lg border-2 border-success/30"
                 />
                 <button
                   type="button"
-                  onClick={() => setFormData(prev => ({ ...prev, deliveryNotePhoto: null }))}
+                  onClick={() => {
+                    setFormData(prev => ({ ...prev, deliveryNotePhoto: null }));
+                    setDeliveryNotePreview(null);
+                  }}
                   className="absolute top-2 right-2 p-1 bg-destructive rounded-full"
                 >
                   <X className="h-4 w-4 text-destructive-foreground" />
@@ -221,9 +292,19 @@ export default function EntryPage() {
             variant="industrial-accent"
             size="industrial"
             className="w-full"
+            disabled={isSubmitting}
           >
-            <Check className="h-8 w-8" />
-            <span>Registrar Entrada</span>
+            {isSubmitting ? (
+              <>
+                <Loader2 className="h-8 w-8 animate-spin" />
+                <span>Registrando...</span>
+              </>
+            ) : (
+              <>
+                <Check className="h-8 w-8" />
+                <span>Registrar Entrada</span>
+              </>
+            )}
           </Button>
         </form>
       </main>
