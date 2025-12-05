@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Factory, Plus, X, Check, Link2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Factory, Plus, Check, Link2, Loader2 } from 'lucide-react';
 import { MobileHeader } from '@/components/mobile/MobileHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,18 +7,20 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
+import type { Tables } from '@/integrations/supabase/types';
 
-// Mock available entry lots
-const availableLots = [
-  { id: '1', lotNumber: 'ENT-2024-001', product: 'Harina de Trigo T-55', quantity: 500, unit: 'kg' },
-  { id: '2', lotNumber: 'ENT-2024-002', product: 'Azúcar Blanco', quantity: 200, unit: 'kg' },
-  { id: '3', lotNumber: 'ENT-2024-003', product: 'Levadura Fresca', quantity: 50, unit: 'kg' },
-];
+type EntryLot = Tables<'entry_lots'>;
 
 export default function ProductionPage() {
   const { toast } = useToast();
   const navigate = useNavigate();
+  const { user } = useAuth();
   
+  const [availableLots, setAvailableLots] = useState<EntryLot[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [selectedLots, setSelectedLots] = useState<string[]>([]);
   const [formData, setFormData] = useState({
     product: '',
@@ -26,6 +28,31 @@ export default function ProductionPage() {
     unit: 'unidades',
     operator: '',
   });
+
+  useEffect(() => {
+    fetchEntryLots();
+  }, []);
+
+  const fetchEntryLots = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('entry_lots')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setAvailableLots(data || []);
+    } catch (error) {
+      console.error('Error fetching entry lots:', error);
+      toast({
+        title: "Error",
+        description: "No se pudieron cargar los lotes de entrada",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const toggleLot = (lotId: string) => {
     setSelectedLots(prev => 
@@ -35,7 +62,7 @@ export default function ProductionPage() {
     );
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (selectedLots.length === 0) {
@@ -56,14 +83,47 @@ export default function ProductionPage() {
       return;
     }
 
+    if (!user) {
+      toast({
+        title: "Error",
+        description: "Debes iniciar sesión",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSubmitting(true);
     const batchNumber = `PROD-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`;
     
-    toast({
-      title: "Producción registrada",
-      description: `Lote ${batchNumber} creado con ${selectedLots.length} materias primas`,
-    });
-    
-    setTimeout(() => navigate('/'), 1000);
+    try {
+      const { error } = await supabase.from('production_batches').insert({
+        user_id: user.id,
+        batch_number: batchNumber,
+        product: formData.product,
+        quantity: parseFloat(formData.outputQuantity),
+        unit: formData.unit,
+        operator: formData.operator,
+        input_lot_ids: selectedLots,
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: "Producción registrada",
+        description: `Lote ${batchNumber} creado con ${selectedLots.length} materias primas`,
+      });
+      
+      setTimeout(() => navigate('/'), 1000);
+    } catch (error) {
+      console.error('Error creating production batch:', error);
+      toast({
+        title: "Error",
+        description: "No se pudo registrar la producción",
+        variant: "destructive",
+      });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -81,47 +141,57 @@ export default function ProductionPage() {
               </Label>
             </div>
             
-            <div className="space-y-2">
-              {availableLots.map((lot) => {
-                const isSelected = selectedLots.includes(lot.id);
-                return (
-                  <button
-                    key={lot.id}
-                    type="button"
-                    onClick={() => toggleLot(lot.id)}
-                    className={cn(
-                      "w-full p-4 rounded-xl border-2 text-left transition-all",
-                      "active:scale-[0.98]",
-                      isSelected 
-                        ? "bg-primary/10 border-primary" 
-                        : "bg-muted border-border hover:border-primary/50"
-                    )}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-mono-industrial text-sm text-primary">
-                          {lot.lotNumber}
-                        </p>
-                        <p className="font-semibold text-foreground mt-1">
-                          {lot.product}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          {lot.quantity} {lot.unit}
-                        </p>
-                      </div>
-                      <div className={cn(
-                        "w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all",
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            ) : availableLots.length === 0 ? (
+              <p className="text-center py-8 text-muted-foreground">
+                No hay lotes de entrada disponibles
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {availableLots.map((lot) => {
+                  const isSelected = selectedLots.includes(lot.id);
+                  return (
+                    <button
+                      key={lot.id}
+                      type="button"
+                      onClick={() => toggleLot(lot.id)}
+                      className={cn(
+                        "w-full p-4 rounded-xl border-2 text-left transition-all",
+                        "active:scale-[0.98]",
                         isSelected 
-                          ? "bg-primary border-primary" 
-                          : "border-muted-foreground"
-                      )}>
-                        {isSelected && <Check className="h-5 w-5 text-primary-foreground" />}
+                          ? "bg-primary/10 border-primary" 
+                          : "bg-muted border-border hover:border-primary/50"
+                      )}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-mono-industrial text-sm text-primary">
+                            {lot.lot_number}
+                          </p>
+                          <p className="font-semibold text-foreground mt-1">
+                            {lot.product}
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            {lot.quantity} {lot.unit}
+                          </p>
+                        </div>
+                        <div className={cn(
+                          "w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all",
+                          isSelected 
+                            ? "bg-primary border-primary" 
+                            : "border-muted-foreground"
+                        )}>
+                          {isSelected && <Check className="h-5 w-5 text-primary-foreground" />}
+                        </div>
                       </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Output Product */}
@@ -193,9 +263,14 @@ export default function ProductionPage() {
             variant="industrial-accent"
             size="industrial"
             className="w-full"
+            disabled={submitting}
           >
-            <Plus className="h-8 w-8" />
-            <span>Crear Lote de Producción</span>
+            {submitting ? (
+              <Loader2 className="h-8 w-8 animate-spin" />
+            ) : (
+              <Plus className="h-8 w-8" />
+            )}
+            <span>{submitting ? 'Registrando...' : 'Crear Lote de Producción'}</span>
           </Button>
         </form>
       </main>
