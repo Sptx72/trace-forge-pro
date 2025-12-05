@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { PackageCheck, Truck, Check, Building2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { PackageCheck, Truck, Check, Building2, Loader2 } from 'lucide-react';
 import { MobileHeader } from '@/components/mobile/MobileHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,26 +7,59 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 
-// Mock production batches ready for output
-const productionBatches = [
-  { id: '1', batchNumber: 'PROD-2024-001', product: 'Pan de Molde Integral', quantity: 300, unit: 'unidades' },
-  { id: '2', batchNumber: 'PROD-2024-002', product: 'Croissants', quantity: 150, unit: 'unidades' },
-];
+interface ProductionBatch {
+  id: string;
+  batch_number: string;
+  product: string;
+  quantity: number;
+  unit: string;
+}
 
 export default function OutputPage() {
   const { toast } = useToast();
   const navigate = useNavigate();
+  const { user } = useAuth();
   
+  const [productionBatches, setProductionBatches] = useState<ProductionBatch[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [selectedBatch, setSelectedBatch] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     quantity: '',
     destination: '',
   });
 
+  useEffect(() => {
+    fetchProductionBatches();
+  }, []);
+
+  const fetchProductionBatches = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('production_batches')
+        .select('id, batch_number, product, quantity, unit')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setProductionBatches(data || []);
+    } catch (error) {
+      console.error('Error fetching production batches:', error);
+      toast({
+        title: "Error",
+        description: "No se pudieron cargar los lotes de producción",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const selectedBatchData = productionBatches.find(b => b.id === selectedBatch);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!selectedBatch) {
@@ -47,14 +80,46 @@ export default function OutputPage() {
       return;
     }
 
+    if (!user) {
+      toast({
+        title: "Error",
+        description: "Debes iniciar sesión",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSubmitting(true);
     const lotNumber = `SAL-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`;
     
-    toast({
-      title: "Salida registrada",
-      description: `Lote ${lotNumber} expedido a ${formData.destination}`,
-    });
-    
-    setTimeout(() => navigate('/'), 1000);
+    try {
+      const { error } = await supabase.from('output_lots').insert({
+        user_id: user.id,
+        lot_number: lotNumber,
+        production_batch_id: selectedBatch,
+        quantity: parseFloat(formData.quantity),
+        unit: selectedBatchData?.unit || 'unidades',
+        destination: formData.destination,
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: "Salida registrada",
+        description: `Lote ${lotNumber} expedido a ${formData.destination}`,
+      });
+      
+      setTimeout(() => navigate('/'), 1000);
+    } catch (error) {
+      console.error('Error creating output lot:', error);
+      toast({
+        title: "Error",
+        description: "No se pudo registrar la salida",
+        variant: "destructive",
+      });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -72,47 +137,57 @@ export default function OutputPage() {
               </Label>
             </div>
             
-            <div className="space-y-2">
-              {productionBatches.map((batch) => {
-                const isSelected = selectedBatch === batch.id;
-                return (
-                  <button
-                    key={batch.id}
-                    type="button"
-                    onClick={() => setSelectedBatch(batch.id)}
-                    className={cn(
-                      "w-full p-4 rounded-xl border-2 text-left transition-all",
-                      "active:scale-[0.98]",
-                      isSelected 
-                        ? "bg-success/10 border-success" 
-                        : "bg-muted border-border hover:border-success/50"
-                    )}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-mono-industrial text-sm text-success">
-                          {batch.batchNumber}
-                        </p>
-                        <p className="font-semibold text-foreground mt-1">
-                          {batch.product}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          Disponible: {batch.quantity} {batch.unit}
-                        </p>
-                      </div>
-                      <div className={cn(
-                        "w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all",
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin text-success" />
+              </div>
+            ) : productionBatches.length === 0 ? (
+              <p className="text-center py-8 text-muted-foreground">
+                No hay lotes de producción disponibles
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {productionBatches.map((batch) => {
+                  const isSelected = selectedBatch === batch.id;
+                  return (
+                    <button
+                      key={batch.id}
+                      type="button"
+                      onClick={() => setSelectedBatch(batch.id)}
+                      className={cn(
+                        "w-full p-4 rounded-xl border-2 text-left transition-all",
+                        "active:scale-[0.98]",
                         isSelected 
-                          ? "bg-success border-success" 
-                          : "border-muted-foreground"
-                      )}>
-                        {isSelected && <Check className="h-5 w-5 text-success-foreground" />}
+                          ? "bg-success/10 border-success" 
+                          : "bg-muted border-border hover:border-success/50"
+                      )}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-mono-industrial text-sm text-success">
+                            {batch.batch_number}
+                          </p>
+                          <p className="font-semibold text-foreground mt-1">
+                            {batch.product}
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            Disponible: {batch.quantity} {batch.unit}
+                          </p>
+                        </div>
+                        <div className={cn(
+                          "w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all",
+                          isSelected 
+                            ? "bg-success border-success" 
+                            : "border-muted-foreground"
+                        )}>
+                          {isSelected && <Check className="h-5 w-5 text-success-foreground" />}
+                        </div>
                       </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Output Details */}
@@ -174,9 +249,14 @@ export default function OutputPage() {
             variant="industrial"
             size="industrial"
             className="w-full"
+            disabled={submitting}
           >
-            <Truck className="h-8 w-8" />
-            <span>Registrar Salida</span>
+            {submitting ? (
+              <Loader2 className="h-8 w-8 animate-spin" />
+            ) : (
+              <Truck className="h-8 w-8" />
+            )}
+            <span>{submitting ? 'Registrando...' : 'Registrar Salida'}</span>
           </Button>
         </form>
       </main>

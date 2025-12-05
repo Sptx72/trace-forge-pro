@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   Search, Filter, FileDown, PackageOpen, Factory, PackageCheck, 
-  ChevronDown, Home, ArrowUpDown, Eye, LogOut
+  ChevronDown, Home, ArrowUpDown, Eye, LogOut, Loader2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,18 +21,22 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/integrations/supabase/client';
 
 type RecordType = 'all' | 'entry' | 'production' | 'output';
 
-// Extended mock data for admin panel
-const mockRecords = [
-  { id: '1', type: 'entry', lotNumber: 'ENT-2024-001', product: 'Harina de Trigo T-55', supplier: 'Molinos del Sur S.A.', quantity: 500, unit: 'kg', date: new Date('2024-01-15'), status: 'used' },
-  { id: '2', type: 'entry', lotNumber: 'ENT-2024-002', product: 'Azúcar Blanco', supplier: 'Azucarera Nacional', quantity: 200, unit: 'kg', date: new Date('2024-01-16'), status: 'verified' },
-  { id: '3', type: 'entry', lotNumber: 'ENT-2024-003', product: 'Levadura Fresca', supplier: 'Levaduras Premium', quantity: 50, unit: 'kg', date: new Date('2024-01-17'), status: 'pending' },
-  { id: '4', type: 'production', lotNumber: 'PROD-2024-001', product: 'Pan de Molde Integral', operator: 'Juan García', quantity: 300, unit: 'unidades', date: new Date('2024-01-18'), status: 'completed', inputLots: ['ENT-2024-001', 'ENT-2024-002'] },
-  { id: '5', type: 'output', lotNumber: 'SAL-2024-001', product: 'Pan de Molde Integral', destination: 'Supermercados Norte', quantity: 150, unit: 'unidades', date: new Date('2024-01-19'), status: 'shipped', productionLot: 'PROD-2024-001' },
-  { id: '6', type: 'production', lotNumber: 'PROD-2024-002', product: 'Croissants', operator: 'María López', quantity: 200, unit: 'unidades', date: new Date('2024-01-20'), status: 'completed', inputLots: ['ENT-2024-001', 'ENT-2024-002', 'ENT-2024-003'] },
-];
+interface DisplayRecord {
+  id: string;
+  type: 'entry' | 'production' | 'output';
+  lotNumber: string;
+  product: string;
+  quantity: number;
+  unit: string;
+  date: Date;
+  supplier?: string;
+  operator?: string;
+  destination?: string;
+}
 
 const typeConfig = {
   entry: { icon: PackageOpen, color: 'text-primary', bg: 'bg-primary/10', label: 'Entrada' },
@@ -40,25 +44,78 @@ const typeConfig = {
   output: { icon: PackageCheck, color: 'text-success', bg: 'bg-success/10', label: 'Salida' },
 };
 
-const statusConfig: Record<string, { color: string; label: string }> = {
-  pending: { color: 'bg-warning', label: 'Pendiente' },
-  verified: { color: 'bg-success', label: 'Verificado' },
-  used: { color: 'bg-muted-foreground', label: 'Usado' },
-  'in-progress': { color: 'bg-info', label: 'En proceso' },
-  completed: { color: 'bg-success', label: 'Completado' },
-  ready: { color: 'bg-info', label: 'Listo' },
-  shipped: { color: 'bg-primary', label: 'Enviado' },
-  delivered: { color: 'bg-success', label: 'Entregado' },
-};
-
 export default function AdminPanel() {
   const { toast } = useToast();
-  const { signOut, user } = useAuth();
+  const { signOut } = useAuth();
   const [filter, setFilter] = useState<RecordType>('all');
   const [search, setSearch] = useState('');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-  const [selectedRecord, setSelectedRecord] = useState<typeof mockRecords[0] | null>(null);
+  const [selectedRecord, setSelectedRecord] = useState<DisplayRecord | null>(null);
   const [showTraceDialog, setShowTraceDialog] = useState(false);
+  const [records, setRecords] = useState<DisplayRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchAllRecords();
+  }, []);
+
+  const fetchAllRecords = async () => {
+    setLoading(true);
+    try {
+      const [entryRes, prodRes, outputRes] = await Promise.all([
+        supabase.from('entry_lots').select('*').order('created_at', { ascending: false }),
+        supabase.from('production_batches').select('*').order('created_at', { ascending: false }),
+        supabase.from('output_lots').select('*').order('created_at', { ascending: false }),
+      ]);
+
+      const allRecords: DisplayRecord[] = [];
+
+      (entryRes.data || []).forEach(lot => {
+        allRecords.push({
+          id: lot.id,
+          type: 'entry',
+          lotNumber: lot.lot_number,
+          product: lot.product,
+          quantity: lot.quantity,
+          unit: lot.unit,
+          date: new Date(lot.created_at),
+          supplier: lot.supplier,
+        });
+      });
+
+      (prodRes.data || []).forEach(batch => {
+        allRecords.push({
+          id: batch.id,
+          type: 'production',
+          lotNumber: batch.batch_number,
+          product: batch.product,
+          quantity: batch.quantity,
+          unit: batch.unit,
+          date: new Date(batch.created_at),
+          operator: batch.operator,
+        });
+      });
+
+      (outputRes.data || []).forEach(lot => {
+        allRecords.push({
+          id: lot.id,
+          type: 'output',
+          lotNumber: lot.lot_number,
+          product: '',
+          quantity: lot.quantity,
+          unit: lot.unit,
+          date: new Date(lot.created_at),
+          destination: lot.destination,
+        });
+      });
+
+      setRecords(allRecords);
+    } catch (error) {
+      console.error('Error fetching records:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleLogout = async () => {
     await signOut();
@@ -68,7 +125,7 @@ export default function AdminPanel() {
     });
   };
 
-  const filteredRecords = mockRecords
+  const filteredRecords = records
     .filter(record => {
       const matchesType = filter === 'all' || record.type === filter;
       const matchesSearch = 
@@ -81,8 +138,7 @@ export default function AdminPanel() {
       return sortOrder === 'asc' ? diff : -diff;
     });
 
-  const handleExportPDF = (record: typeof mockRecords[0]) => {
-    // Simulated PDF export
+  const handleExportPDF = (record: DisplayRecord) => {
     toast({
       title: "Exportando PDF",
       description: `Generando informe de trazabilidad para ${record.lotNumber}...`,
@@ -96,50 +152,16 @@ export default function AdminPanel() {
     }, 1500);
   };
 
-  const handleViewTrace = (record: typeof mockRecords[0]) => {
+  const handleViewTrace = (record: DisplayRecord) => {
     setSelectedRecord(record);
     setShowTraceDialog(true);
   };
 
-  // Build traceability chain for selected record
-  const getTraceabilityChain = () => {
-    if (!selectedRecord) return [];
-    
-    const chain: typeof mockRecords = [];
-    
-    if (selectedRecord.type === 'output') {
-      chain.push(selectedRecord);
-      // Find production batch
-      const prodLot = mockRecords.find(r => 
-        r.type === 'production' && r.lotNumber === (selectedRecord as any).productionLot
-      );
-      if (prodLot) {
-        chain.unshift(prodLot);
-        // Find entry lots
-        const inputLots = (prodLot as any).inputLots || [];
-        inputLots.forEach((lotNum: string) => {
-          const entryLot = mockRecords.find(r => r.lotNumber === lotNum);
-          if (entryLot) chain.unshift(entryLot);
-        });
-      }
-    } else if (selectedRecord.type === 'production') {
-      // Find entry lots
-      const inputLots = (selectedRecord as any).inputLots || [];
-      inputLots.forEach((lotNum: string) => {
-        const entryLot = mockRecords.find(r => r.lotNumber === lotNum);
-        if (entryLot) chain.push(entryLot);
-      });
-      chain.push(selectedRecord);
-      // Find outputs
-      const outputs = mockRecords.filter(r => 
-        r.type === 'output' && (r as any).productionLot === selectedRecord.lotNumber
-      );
-      chain.push(...outputs);
-    } else {
-      chain.push(selectedRecord);
-    }
-    
-    return chain;
+  const stats = {
+    total: records.length,
+    entry: records.filter(r => r.type === 'entry').length,
+    production: records.filter(r => r.type === 'production').length,
+    output: records.filter(r => r.type === 'output').length,
   };
 
   return (
@@ -184,7 +206,6 @@ export default function AdminPanel() {
         {/* Filters Bar */}
         <div className="panel-industrial p-4 mb-6">
           <div className="flex flex-col lg:flex-row gap-4">
-            {/* Search */}
             <div className="relative flex-1">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
               <Input
@@ -195,7 +216,6 @@ export default function AdminPanel() {
               />
             </div>
 
-            {/* Filter Dropdown */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="lg" className="min-w-[160px]">
@@ -223,7 +243,6 @@ export default function AdminPanel() {
               </DropdownMenuContent>
             </DropdownMenu>
 
-            {/* Sort Button */}
             <Button 
               variant="outline" 
               size="lg"
@@ -238,10 +257,10 @@ export default function AdminPanel() {
         {/* Stats */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           {[
-            { label: 'Total Registros', value: mockRecords.length, icon: PackageOpen },
-            { label: 'Entradas', value: mockRecords.filter(r => r.type === 'entry').length, icon: PackageOpen, color: 'text-primary' },
-            { label: 'Producción', value: mockRecords.filter(r => r.type === 'production').length, icon: Factory, color: 'text-accent' },
-            { label: 'Salidas', value: mockRecords.filter(r => r.type === 'output').length, icon: PackageCheck, color: 'text-success' },
+            { label: 'Total Registros', value: stats.total, icon: PackageOpen },
+            { label: 'Entradas', value: stats.entry, icon: PackageOpen, color: 'text-primary' },
+            { label: 'Producción', value: stats.production, icon: Factory, color: 'text-accent' },
+            { label: 'Salidas', value: stats.output, icon: PackageCheck, color: 'text-success' },
           ].map((stat, i) => (
             <div key={i} className="panel-industrial p-4">
               <div className="flex items-center justify-between">
@@ -259,99 +278,101 @@ export default function AdminPanel() {
 
         {/* Table */}
         <div className="panel-industrial overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b-2 border-border bg-muted/50">
-                  <th className="text-left p-4 font-bold uppercase text-xs tracking-wider text-muted-foreground">Tipo</th>
-                  <th className="text-left p-4 font-bold uppercase text-xs tracking-wider text-muted-foreground">Nº Lote</th>
-                  <th className="text-left p-4 font-bold uppercase text-xs tracking-wider text-muted-foreground">Producto</th>
-                  <th className="text-left p-4 font-bold uppercase text-xs tracking-wider text-muted-foreground">Cantidad</th>
-                  <th className="text-left p-4 font-bold uppercase text-xs tracking-wider text-muted-foreground">Fecha</th>
-                  <th className="text-left p-4 font-bold uppercase text-xs tracking-wider text-muted-foreground">Estado</th>
-                  <th className="text-right p-4 font-bold uppercase text-xs tracking-wider text-muted-foreground">Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredRecords.map((record, index) => {
-                  const config = typeConfig[record.type as keyof typeof typeConfig];
-                  const status = statusConfig[record.status] || { color: 'bg-muted-foreground', label: record.status };
-                  const Icon = config.icon;
-                  
-                  return (
-                    <tr 
-                      key={record.id}
-                      className="border-b border-border hover:bg-muted/30 transition-colors"
-                      style={{ animationDelay: `${index * 50}ms` }}
-                    >
-                      <td className="p-4">
-                        <div className={cn("inline-flex items-center gap-2 px-3 py-1.5 rounded-full", config.bg)}>
-                          <Icon className={cn("h-4 w-4", config.color)} />
-                          <span className={cn("text-sm font-medium", config.color)}>
-                            {config.label}
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b-2 border-border bg-muted/50">
+                    <th className="text-left p-4 font-bold uppercase text-xs tracking-wider text-muted-foreground">Tipo</th>
+                    <th className="text-left p-4 font-bold uppercase text-xs tracking-wider text-muted-foreground">Nº Lote</th>
+                    <th className="text-left p-4 font-bold uppercase text-xs tracking-wider text-muted-foreground">Producto</th>
+                    <th className="text-left p-4 font-bold uppercase text-xs tracking-wider text-muted-foreground">Cantidad</th>
+                    <th className="text-left p-4 font-bold uppercase text-xs tracking-wider text-muted-foreground">Fecha</th>
+                    <th className="text-left p-4 font-bold uppercase text-xs tracking-wider text-muted-foreground">Info</th>
+                    <th className="text-right p-4 font-bold uppercase text-xs tracking-wider text-muted-foreground">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredRecords.map((record, index) => {
+                    const config = typeConfig[record.type];
+                    const Icon = config.icon;
+                    
+                    return (
+                      <tr 
+                        key={record.id}
+                        className="border-b border-border hover:bg-muted/30 transition-colors"
+                        style={{ animationDelay: `${index * 50}ms` }}
+                      >
+                        <td className="p-4">
+                          <div className={cn("inline-flex items-center gap-2 px-3 py-1.5 rounded-full", config.bg)}>
+                            <Icon className={cn("h-4 w-4", config.color)} />
+                            <span className={cn("text-sm font-medium", config.color)}>
+                              {config.label}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          <span className="font-mono-industrial text-primary">
+                            {record.lotNumber}
                           </span>
-                        </div>
-                      </td>
-                      <td className="p-4">
-                        <span className="font-mono-industrial text-primary">
-                          {record.lotNumber}
-                        </span>
-                      </td>
-                      <td className="p-4">
-                        <span className="font-semibold text-foreground">
-                          {record.product}
-                        </span>
-                      </td>
-                      <td className="p-4">
-                        <span className="font-mono-industrial text-foreground">
-                          {record.quantity} {record.unit}
-                        </span>
-                      </td>
-                      <td className="p-4">
-                        <span className="text-muted-foreground">
-                          {record.date.toLocaleDateString('es-ES', { 
-                            day: '2-digit',
-                            month: 'short',
-                            year: 'numeric'
-                          })}
-                        </span>
-                      </td>
-                      <td className="p-4">
-                        <div className="flex items-center gap-2">
-                          <div className={cn("w-2 h-2 rounded-full", status.color)} />
+                        </td>
+                        <td className="p-4">
+                          <span className="font-semibold text-foreground">
+                            {record.product || '-'}
+                          </span>
+                        </td>
+                        <td className="p-4">
+                          <span className="font-mono-industrial text-foreground">
+                            {record.quantity} {record.unit}
+                          </span>
+                        </td>
+                        <td className="p-4">
+                          <span className="text-muted-foreground">
+                            {record.date.toLocaleDateString('es-ES', { 
+                              day: '2-digit',
+                              month: 'short',
+                              year: 'numeric'
+                            })}
+                          </span>
+                        </td>
+                        <td className="p-4">
                           <span className="text-sm text-muted-foreground">
-                            {status.label}
+                            {record.supplier || record.operator || record.destination || '-'}
                           </span>
-                        </div>
-                      </td>
-                      <td className="p-4">
-                        <div className="flex items-center justify-end gap-2">
-                          <Button 
-                            variant="ghost" 
-                            size="sm"
-                            onClick={() => handleViewTrace(record)}
-                          >
-                            <Eye className="h-4 w-4 mr-1" />
-                            Ver
-                          </Button>
-                          <Button 
-                            variant="industrial-outline" 
-                            size="sm"
-                            onClick={() => handleExportPDF(record)}
-                          >
-                            <FileDown className="h-4 w-4 mr-1" />
-                            PDF
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                        </td>
+                        <td className="p-4">
+                          <div className="flex items-center justify-end gap-2">
+                            <Button 
+                              variant="ghost" 
+                              size="sm"
+                              onClick={() => handleViewTrace(record)}
+                            >
+                              <Eye className="h-4 w-4 mr-1" />
+                              Ver
+                            </Button>
+                            <Button 
+                              variant="industrial-outline" 
+                              size="sm"
+                              onClick={() => handleExportPDF(record)}
+                            >
+                              <FileDown className="h-4 w-4 mr-1" />
+                              PDF
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
           
-          {filteredRecords.length === 0 && (
+          {!loading && filteredRecords.length === 0 && (
             <div className="text-center py-12 text-muted-foreground">
               <Search className="h-12 w-12 mx-auto mb-4 opacity-50" />
               <p>No se encontraron registros</p>
@@ -366,68 +387,45 @@ export default function AdminPanel() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3">
               <div className="w-2 h-8 bg-primary rounded-full" />
-              Trazabilidad: {selectedRecord?.lotNumber}
+              Detalles: {selectedRecord?.lotNumber}
             </DialogTitle>
           </DialogHeader>
           
-          <div className="space-y-4 mt-4">
-            {getTraceabilityChain().map((record, index) => {
-              const config = typeConfig[record.type as keyof typeof typeConfig];
-              const Icon = config.icon;
-              
-              return (
-                <div key={record.id} className="relative">
-                  {index > 0 && (
-                    <div className="absolute left-6 -top-4 w-0.5 h-4 bg-border" />
-                  )}
-                  <div className={cn(
-                    "p-4 rounded-xl border-2",
-                    selectedRecord?.id === record.id 
-                      ? "border-primary bg-primary/5" 
-                      : "border-border bg-muted/30"
-                  )}>
-                    <div className="flex items-start gap-3">
-                      <div className={cn("p-2 rounded-lg", config.bg)}>
-                        <Icon className={cn("h-5 w-5", config.color)} />
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between">
-                          <p className="font-mono-industrial text-sm text-primary">
-                            {record.lotNumber}
-                          </p>
-                          <span className={cn(
-                            "text-xs px-2 py-0.5 rounded-full",
-                            config.bg, config.color
-                          )}>
-                            {config.label}
-                          </span>
-                        </div>
-                        <p className="font-semibold text-foreground mt-1">
-                          {record.product}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          {record.quantity} {record.unit} • {record.date.toLocaleDateString('es-ES')}
-                        </p>
-                      </div>
-                    </div>
+          {selectedRecord && (
+            <div className="space-y-4 mt-4">
+              <div className="p-4 rounded-xl border-2 border-border bg-muted/30">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase">Tipo</p>
+                    <p className="font-semibold">{typeConfig[selectedRecord.type].label}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase">Nº Lote</p>
+                    <p className="font-mono-industrial text-primary">{selectedRecord.lotNumber}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase">Producto</p>
+                    <p className="font-semibold">{selectedRecord.product || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase">Cantidad</p>
+                    <p className="font-mono-industrial">{selectedRecord.quantity} {selectedRecord.unit}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase">Fecha</p>
+                    <p>{selectedRecord.date.toLocaleDateString('es-ES')}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase">
+                      {selectedRecord.type === 'entry' ? 'Proveedor' : 
+                       selectedRecord.type === 'production' ? 'Operario' : 'Destino'}
+                    </p>
+                    <p>{selectedRecord.supplier || selectedRecord.operator || selectedRecord.destination || '-'}</p>
                   </div>
                 </div>
-              );
-            })}
-          </div>
-
-          <div className="flex justify-end gap-3 mt-6">
-            <Button variant="outline" onClick={() => setShowTraceDialog(false)}>
-              Cerrar
-            </Button>
-            <Button 
-              variant="industrial"
-              onClick={() => selectedRecord && handleExportPDF(selectedRecord)}
-            >
-              <FileDown className="h-5 w-5 mr-2" />
-              Exportar PDF Completo
-            </Button>
-          </div>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

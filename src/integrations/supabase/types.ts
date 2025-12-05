@@ -56,6 +56,83 @@ export type Database = {
         }
         Relationships: []
       }
+      output_lots: {
+        Row: {
+          created_at: string
+          destination: string
+          id: string
+          lot_number: string
+          production_batch_id: string | null
+          quantity: number
+          unit: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          destination: string
+          id?: string
+          lot_number: string
+          production_batch_id?: string | null
+          quantity: number
+          unit?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          destination?: string
+          id?: string
+          lot_number?: string
+          production_batch_id?: string | null
+          quantity?: number
+          unit?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "output_lots_production_batch_id_fkey"
+            columns: ["production_batch_id"]
+            isOneToOne: false
+            referencedRelation: "production_batches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      production_batches: {
+        Row: {
+          batch_number: string
+          created_at: string
+          id: string
+          input_lot_ids: string[]
+          operator: string
+          product: string
+          quantity: number
+          unit: string
+          user_id: string
+        }
+        Insert: {
+          batch_number: string
+          created_at?: string
+          id?: string
+          input_lot_ids?: string[]
+          operator: string
+          product: string
+          quantity: number
+          unit?: string
+          user_id: string
+        }
+        Update: {
+          batch_number?: string
+          created_at?: string
+          id?: string
+          input_lot_ids?: string[]
+          operator?: string
+          product?: string
+          quantity?: number
+          unit?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
