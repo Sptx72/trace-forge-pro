@@ -1,19 +1,24 @@
-import { useState } from 'react';
-import { Search, PackageOpen, Factory, PackageCheck, Calendar } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Search, PackageOpen, Factory, PackageCheck, Calendar, Loader2 } from 'lucide-react';
 import { MobileHeader } from '@/components/mobile/MobileHeader';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/integrations/supabase/client';
+import type { Tables } from '@/integrations/supabase/types';
 
 type RecordType = 'all' | 'entry' | 'production' | 'output';
+type EntryLot = Tables<'entry_lots'>;
 
-// Mock data
-const mockRecords = [
-  { id: '1', type: 'output', lotNumber: 'SAL-2024-001', product: 'Pan de Molde Integral', date: new Date('2024-01-19'), status: 'shipped' },
-  { id: '2', type: 'production', lotNumber: 'PROD-2024-001', product: 'Pan de Molde Integral', date: new Date('2024-01-18'), status: 'completed' },
-  { id: '3', type: 'entry', lotNumber: 'ENT-2024-003', product: 'Levadura Fresca', date: new Date('2024-01-17'), status: 'pending' },
-  { id: '4', type: 'entry', lotNumber: 'ENT-2024-002', product: 'Azúcar Blanco', date: new Date('2024-01-16'), status: 'verified' },
-  { id: '5', type: 'entry', lotNumber: 'ENT-2024-001', product: 'Harina de Trigo T-55', date: new Date('2024-01-15'), status: 'used' },
-];
+interface DisplayRecord {
+  id: string;
+  type: 'entry' | 'production' | 'output';
+  lotNumber: string;
+  product: string;
+  date: Date;
+  supplier?: string;
+  quantity?: number;
+  unit?: string;
+}
 
 const typeConfig = {
   entry: { icon: PackageOpen, color: 'text-primary', bg: 'bg-primary/10', label: 'Entrada' },
@@ -21,22 +26,46 @@ const typeConfig = {
   output: { icon: PackageCheck, color: 'text-success', bg: 'bg-success/10', label: 'Salida' },
 };
 
-const statusConfig: Record<string, { color: string; label: string }> = {
-  pending: { color: 'bg-warning', label: 'Pendiente' },
-  verified: { color: 'bg-success', label: 'Verificado' },
-  used: { color: 'bg-muted-foreground', label: 'Usado' },
-  'in-progress': { color: 'bg-info', label: 'En proceso' },
-  completed: { color: 'bg-success', label: 'Completado' },
-  ready: { color: 'bg-info', label: 'Listo' },
-  shipped: { color: 'bg-primary', label: 'Enviado' },
-  delivered: { color: 'bg-success', label: 'Entregado' },
-};
-
 export default function HistoryPage() {
   const [filter, setFilter] = useState<RecordType>('all');
   const [search, setSearch] = useState('');
+  const [records, setRecords] = useState<DisplayRecord[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const filteredRecords = mockRecords.filter(record => {
+  useEffect(() => {
+    fetchRecords();
+  }, []);
+
+  const fetchRecords = async () => {
+    setLoading(true);
+    try {
+      const { data: entryLots, error } = await supabase
+        .from('entry_lots')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const displayRecords: DisplayRecord[] = (entryLots || []).map((lot: EntryLot) => ({
+        id: lot.id,
+        type: 'entry' as const,
+        lotNumber: lot.lot_number,
+        product: lot.product,
+        date: new Date(lot.created_at),
+        supplier: lot.supplier,
+        quantity: lot.quantity,
+        unit: lot.unit,
+      }));
+
+      setRecords(displayRecords);
+    } catch (error) {
+      console.error('Error fetching records:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const filteredRecords = records.filter(record => {
     const matchesType = filter === 'all' || record.type === filter;
     const matchesSearch = 
       record.lotNumber.toLowerCase().includes(search.toLowerCase()) ||
@@ -83,7 +112,12 @@ export default function HistoryPage() {
 
         {/* Records List */}
         <div className="flex-1 overflow-auto p-4 space-y-3">
-          {filteredRecords.length === 0 ? (
+          {loading ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <Loader2 className="h-12 w-12 mx-auto mb-4 animate-spin" />
+              <p>Cargando registros...</p>
+            </div>
+          ) : filteredRecords.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
               <Calendar className="h-12 w-12 mx-auto mb-4 opacity-50" />
               <p>No se encontraron registros</p>
@@ -91,7 +125,6 @@ export default function HistoryPage() {
           ) : (
             filteredRecords.map((record) => {
               const config = typeConfig[record.type as keyof typeof typeConfig];
-              const status = statusConfig[record.status] || { color: 'bg-muted-foreground', label: record.status };
               const Icon = config.icon;
               
               return (
@@ -108,16 +141,20 @@ export default function HistoryPage() {
                         <p className="font-mono-industrial text-sm text-primary truncate">
                           {record.lotNumber}
                         </p>
-                        <div className="flex items-center gap-1.5">
-                          <div className={cn("w-2 h-2 rounded-full", status.color)} />
-                          <span className="text-xs text-muted-foreground uppercase">
-                            {status.label}
+                        {record.quantity && (
+                          <span className="text-xs text-muted-foreground">
+                            {record.quantity} {record.unit}
                           </span>
-                        </div>
+                        )}
                       </div>
                       <p className="font-semibold text-foreground mt-1 truncate">
                         {record.product}
                       </p>
+                      {record.supplier && (
+                        <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                          {record.supplier}
+                        </p>
+                      )}
                       <p className="text-sm text-muted-foreground mt-1">
                         {record.date.toLocaleDateString('es-ES', { 
                           day: '2-digit',
