@@ -9,19 +9,27 @@ import { useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import type { Tables } from '@/integrations/supabase/types';
+import { useStock, type StockBalance } from '@/hooks/useStock';
 
-type EntryLot = Tables<'entry_lots'>;
+interface SelectedLot {
+  lotId: string;
+  lotNumber: string;
+  product: string;
+  unit: string;
+  availableBalance: number;
+  consumeQuantity: string;
+}
 
 export default function ProductionPage() {
   const { toast } = useToast();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { fetchAvailableEntryLots, consumeEntryStock, registerProductionStock } = useStock();
   
-  const [availableLots, setAvailableLots] = useState<EntryLot[]>([]);
+  const [availableLots, setAvailableLots] = useState<StockBalance[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [selectedLots, setSelectedLots] = useState<string[]>([]);
+  const [selectedLots, setSelectedLots] = useState<SelectedLot[]>([]);
   const [formData, setFormData] = useState({
     product: '',
     outputQuantity: '',
@@ -30,18 +38,13 @@ export default function ProductionPage() {
   });
 
   useEffect(() => {
-    fetchEntryLots();
+    fetchLots();
   }, []);
 
-  const fetchEntryLots = async () => {
+  const fetchLots = async () => {
     try {
-      const { data, error } = await supabase
-        .from('entry_lots')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      setAvailableLots(data || []);
+      const lots = await fetchAvailableEntryLots();
+      setAvailableLots(lots);
     } catch (error) {
       console.error('Error fetching entry lots:', error);
       toast({
@@ -54,12 +57,50 @@ export default function ProductionPage() {
     }
   };
 
-  const toggleLot = (lotId: string) => {
-    setSelectedLots(prev => 
-      prev.includes(lotId) 
-        ? prev.filter(id => id !== lotId)
-        : [...prev, lotId]
-    );
+  const toggleLot = (lot: StockBalance) => {
+    setSelectedLots(prev => {
+      const exists = prev.find(l => l.lotId === lot.source_lot_id);
+      if (exists) {
+        return prev.filter(l => l.lotId !== lot.source_lot_id);
+      }
+      return [...prev, {
+        lotId: lot.source_lot_id,
+        lotNumber: lot.lot_number,
+        product: lot.product,
+        unit: lot.unit,
+        availableBalance: lot.available_balance,
+        consumeQuantity: '',
+      }];
+    });
+  };
+
+  const updateConsumeQuantity = (lotId: string, quantity: string) => {
+    setSelectedLots(prev => prev.map(l => 
+      l.lotId === lotId ? { ...l, consumeQuantity: quantity } : l
+    ));
+  };
+
+  const validateConsumptions = (): boolean => {
+    for (const lot of selectedLots) {
+      const qty = parseFloat(lot.consumeQuantity);
+      if (isNaN(qty) || qty <= 0) {
+        toast({
+          title: "Error",
+          description: `Ingresa una cantidad válida para el lote ${lot.lotNumber}`,
+          variant: "destructive",
+        });
+        return false;
+      }
+      if (qty > lot.availableBalance) {
+        toast({
+          title: "Error",
+          description: `La cantidad para ${lot.lotNumber} excede el saldo disponible (${lot.availableBalance} ${lot.unit})`,
+          variant: "destructive",
+        });
+        return false;
+      }
+    }
+    return true;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -83,6 +124,10 @@ export default function ProductionPage() {
       return;
     }
 
+    if (!validateConsumptions()) {
+      return;
+    }
+
     if (!user) {
       toast({
         title: "Error",
@@ -94,19 +139,42 @@ export default function ProductionPage() {
 
     setSubmitting(true);
     const batchNumber = `PROD-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`;
+    const outputQuantity = parseFloat(formData.outputQuantity);
     
     try {
-      const { error } = await supabase.from('production_batches').insert({
+      // Create production batch
+      const { data: productionBatch, error } = await supabase.from('production_batches').insert({
         user_id: user.id,
         batch_number: batchNumber,
         product: formData.product,
-        quantity: parseFloat(formData.outputQuantity),
+        quantity: outputQuantity,
         unit: formData.unit,
         operator: formData.operator,
-        input_lot_ids: selectedLots,
-      });
+        input_lot_ids: selectedLots.map(l => l.lotId),
+      }).select().single();
 
       if (error) throw error;
+
+      // Register positive stock for new production
+      await registerProductionStock(
+        productionBatch.id,
+        batchNumber,
+        formData.product,
+        outputQuantity,
+        formData.unit,
+        user.id
+      );
+
+      // Register negative stock movements for consumed entry lots
+      const consumptions = selectedLots.map(l => ({
+        lotId: l.lotId,
+        lotNumber: l.lotNumber,
+        product: l.product,
+        quantity: parseFloat(l.consumeQuantity),
+        unit: l.unit,
+      }));
+
+      await consumeEntryStock(consumptions, productionBatch.id, user.id);
 
       toast({
         title: "Producción registrada",
@@ -147,47 +215,76 @@ export default function ProductionPage() {
               </div>
             ) : availableLots.length === 0 ? (
               <p className="text-center py-8 text-muted-foreground">
-                No hay lotes de entrada disponibles
+                No hay lotes de entrada con stock disponible
               </p>
             ) : (
               <div className="space-y-2">
                 {availableLots.map((lot) => {
-                  const isSelected = selectedLots.includes(lot.id);
+                  const selected = selectedLots.find(l => l.lotId === lot.source_lot_id);
+                  const isSelected = !!selected;
                   return (
-                    <button
-                      key={lot.id}
-                      type="button"
-                      onClick={() => toggleLot(lot.id)}
-                      className={cn(
-                        "w-full p-4 rounded-xl border-2 text-left transition-all",
-                        "active:scale-[0.98]",
-                        isSelected 
-                          ? "bg-primary/10 border-primary" 
-                          : "bg-muted border-border hover:border-primary/50"
-                      )}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-mono-industrial text-sm text-primary">
-                            {lot.lot_number}
-                          </p>
-                          <p className="font-semibold text-foreground mt-1">
-                            {lot.product}
-                          </p>
-                          <p className="text-sm text-muted-foreground">
-                            {lot.quantity} {lot.unit}
-                          </p>
-                        </div>
-                        <div className={cn(
-                          "w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all",
+                    <div key={lot.source_lot_id} className="space-y-2">
+                      <button
+                        type="button"
+                        onClick={() => toggleLot(lot)}
+                        className={cn(
+                          "w-full p-4 rounded-xl border-2 text-left transition-all",
+                          "active:scale-[0.98]",
                           isSelected 
-                            ? "bg-primary border-primary" 
-                            : "border-muted-foreground"
-                        )}>
-                          {isSelected && <Check className="h-5 w-5 text-primary-foreground" />}
+                            ? "bg-primary/10 border-primary" 
+                            : "bg-muted border-border hover:border-primary/50"
+                        )}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-mono-industrial text-sm text-primary">
+                              {lot.lot_number}
+                            </p>
+                            <p className="font-semibold text-foreground mt-1">
+                              {lot.product}
+                            </p>
+                            <p className="text-sm text-success font-bold">
+                              Disponible: {lot.available_balance.toFixed(2)} {lot.unit}
+                            </p>
+                          </div>
+                          <div className={cn(
+                            "w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all",
+                            isSelected 
+                              ? "bg-primary border-primary" 
+                              : "border-muted-foreground"
+                          )}>
+                            {isSelected && <Check className="h-5 w-5 text-primary-foreground" />}
+                          </div>
                         </div>
-                      </div>
-                    </button>
+                      </button>
+                      
+                      {/* Quantity to consume input */}
+                      {isSelected && selected && (
+                        <div className="ml-4 p-3 bg-primary/5 rounded-lg border border-primary/20">
+                          <Label className="text-xs text-muted-foreground uppercase">
+                            Cantidad a Consumir *
+                          </Label>
+                          <div className="flex gap-2 mt-1">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0.01"
+                              max={selected.availableBalance}
+                              value={selected.consumeQuantity}
+                              onChange={(e) => updateConsumeQuantity(lot.source_lot_id, e.target.value)}
+                              placeholder="0"
+                              className="h-12 text-lg bg-muted border-2 border-border focus:border-primary font-mono-industrial"
+                            />
+                            <div className="h-12 px-4 rounded-lg bg-muted border-2 border-border flex items-center font-bold text-muted-foreground">
+                              {lot.unit.toUpperCase()}
+                            </div>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Máximo: {selected.availableBalance.toFixed(2)} {lot.unit}
+                          </p>
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
               </div>

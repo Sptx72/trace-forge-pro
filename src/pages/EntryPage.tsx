@@ -9,11 +9,13 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { QRScanner } from '@/components/scanner/QRScanner';
+import { useStock } from '@/hooks/useStock';
 
 export default function EntryPage() {
   const { toast } = useToast();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { registerEntryStock } = useStock();
   const photoInputRef = useRef<HTMLInputElement>(null);
   
   const [formData, setFormData] = useState({
@@ -97,6 +99,7 @@ export default function EntryPage() {
     try {
       // Generate lot number
       const lotNumber = `ENT-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
+      const quantity = parseFloat(formData.quantity);
       
       // Upload delivery note photo if exists
       let deliveryNoteUrl: string | null = null;
@@ -106,22 +109,34 @@ export default function EntryPage() {
       }
 
       // Insert entry lot into database
-      const { error } = await supabase
+      const { data: entryLot, error } = await supabase
         .from('entry_lots')
         .insert({
           user_id: user.id,
           lot_number: lotNumber,
           product: formData.product,
           supplier: formData.supplier,
-          quantity: parseFloat(formData.quantity),
+          quantity: quantity,
           unit: formData.unit,
           barcode: formData.barcode || null,
           delivery_note_url: deliveryNoteUrl,
-        });
+        })
+        .select()
+        .single();
 
       if (error) {
         throw error;
       }
+
+      // Register positive stock movement
+      await registerEntryStock(
+        entryLot.id,
+        lotNumber,
+        formData.product,
+        quantity,
+        formData.unit,
+        user.id
+      );
 
       toast({
         title: "Entrada registrada",

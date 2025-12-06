@@ -12,6 +12,7 @@ import ProductionPage from "./pages/ProductionPage";
 import OutputPage from "./pages/OutputPage";
 import HistoryPage from "./pages/HistoryPage";
 import AdminPanel from "./pages/AdminPanel";
+import InventoryPage from "./pages/InventoryPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -53,6 +54,11 @@ const App = () => (
             <Route path="/admin" element={
               <ProtectedRoute>
                 <AdminPanel />
+              </ProtectedRoute>
+            } />
+            <Route path="/inventario" element={
+              <ProtectedRoute>
+                <InventoryPage />
               </ProtectedRoute>
             } />
             <Route path="*" element={<NotFound />} />
