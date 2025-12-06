@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { 
   Search, Filter, FileDown, PackageOpen, Factory, PackageCheck, 
-  ChevronDown, Home, ArrowUpDown, Eye, LogOut, Loader2
+  ChevronDown, Home, ArrowUpDown, Eye, LogOut, Loader2, Package
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -187,10 +187,16 @@ export default function AdminPanel() {
                 <div className="status-dot bg-success" />
                 <span className="text-sm font-medium text-success">Sistema Operativo</span>
               </div>
+              <Link to="/inventario">
+                <Button variant="outline" size="lg">
+                  <Package className="h-5 w-5 mr-2" />
+                  Inventario
+                </Button>
+              </Link>
               <Link to="/">
                 <Button variant="outline" size="lg">
                   <Home className="h-5 w-5 mr-2" />
-                  Volver al Obrador
+                  Obrador
                 </Button>
               </Link>
               <Button variant="industrial-outline" size="lg" onClick={handleLogout}>

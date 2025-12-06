@@ -9,42 +9,31 @@ import { useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-
-interface ProductionBatch {
-  id: string;
-  batch_number: string;
-  product: string;
-  quantity: number;
-  unit: string;
-}
+import { useStock, type StockBalance } from '@/hooks/useStock';
 
 export default function OutputPage() {
   const { toast } = useToast();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { fetchAvailableProductionBatches, consumeProductionStock } = useStock();
   
-  const [productionBatches, setProductionBatches] = useState<ProductionBatch[]>([]);
+  const [productionBatches, setProductionBatches] = useState<StockBalance[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [selectedBatch, setSelectedBatch] = useState<string | null>(null);
+  const [selectedBatch, setSelectedBatch] = useState<StockBalance | null>(null);
   const [formData, setFormData] = useState({
     quantity: '',
     destination: '',
   });
 
   useEffect(() => {
-    fetchProductionBatches();
+    fetchBatches();
   }, []);
 
-  const fetchProductionBatches = async () => {
+  const fetchBatches = async () => {
     try {
-      const { data, error } = await supabase
-        .from('production_batches')
-        .select('id, batch_number, product, quantity, unit')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      setProductionBatches(data || []);
+      const batches = await fetchAvailableProductionBatches();
+      setProductionBatches(batches);
     } catch (error) {
       console.error('Error fetching production batches:', error);
       toast({
@@ -56,8 +45,6 @@ export default function OutputPage() {
       setLoading(false);
     }
   };
-
-  const selectedBatchData = productionBatches.find(b => b.id === selectedBatch);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,6 +67,26 @@ export default function OutputPage() {
       return;
     }
 
+    const expeditQuantity = parseFloat(formData.quantity);
+    
+    if (expeditQuantity <= 0) {
+      toast({
+        title: "Error",
+        description: "La cantidad debe ser mayor a 0",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (expeditQuantity > selectedBatch.available_balance) {
+      toast({
+        title: "Error",
+        description: `La cantidad excede el saldo disponible (${selectedBatch.available_balance.toFixed(2)} ${selectedBatch.unit})`,
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (!user) {
       toast({
         title: "Error",
@@ -93,16 +100,28 @@ export default function OutputPage() {
     const lotNumber = `SAL-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`;
     
     try {
-      const { error } = await supabase.from('output_lots').insert({
+      // Create output lot
+      const { data: outputLot, error } = await supabase.from('output_lots').insert({
         user_id: user.id,
         lot_number: lotNumber,
-        production_batch_id: selectedBatch,
-        quantity: parseFloat(formData.quantity),
-        unit: selectedBatchData?.unit || 'unidades',
+        production_batch_id: selectedBatch.source_lot_id,
+        quantity: expeditQuantity,
+        unit: selectedBatch.unit,
         destination: formData.destination,
-      });
+      }).select().single();
 
       if (error) throw error;
+
+      // Register negative stock movement
+      await consumeProductionStock(
+        selectedBatch.source_lot_id,
+        selectedBatch.lot_number,
+        selectedBatch.product,
+        expeditQuantity,
+        selectedBatch.unit,
+        outputLot.id,
+        user.id
+      );
 
       toast({
         title: "Salida registrada",
@@ -143,17 +162,17 @@ export default function OutputPage() {
               </div>
             ) : productionBatches.length === 0 ? (
               <p className="text-center py-8 text-muted-foreground">
-                No hay lotes de producción disponibles
+                No hay lotes de producción con stock disponible
               </p>
             ) : (
               <div className="space-y-2">
                 {productionBatches.map((batch) => {
-                  const isSelected = selectedBatch === batch.id;
+                  const isSelected = selectedBatch?.source_lot_id === batch.source_lot_id;
                   return (
                     <button
-                      key={batch.id}
+                      key={batch.source_lot_id}
                       type="button"
-                      onClick={() => setSelectedBatch(batch.id)}
+                      onClick={() => setSelectedBatch(batch)}
                       className={cn(
                         "w-full p-4 rounded-xl border-2 text-left transition-all",
                         "active:scale-[0.98]",
@@ -165,13 +184,13 @@ export default function OutputPage() {
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="font-mono-industrial text-sm text-success">
-                            {batch.batch_number}
+                            {batch.lot_number}
                           </p>
                           <p className="font-semibold text-foreground mt-1">
                             {batch.product}
                           </p>
-                          <p className="text-sm text-muted-foreground">
-                            Disponible: {batch.quantity} {batch.unit}
+                          <p className="text-sm text-success font-bold">
+                            Disponible: {batch.available_balance.toFixed(2)} {batch.unit}
                           </p>
                         </div>
                         <div className={cn(
@@ -208,19 +227,21 @@ export default function OutputPage() {
                   <Input
                     id="quantity"
                     type="number"
+                    step="0.01"
+                    min="0.01"
                     value={formData.quantity}
                     onChange={(e) => setFormData(prev => ({ ...prev, quantity: e.target.value }))}
                     placeholder="0"
-                    max={selectedBatchData?.quantity}
+                    max={selectedBatch?.available_balance}
                     className="flex-1 h-14 text-lg bg-muted border-2 border-border focus:border-primary font-mono-industrial"
                   />
                   <div className="h-14 px-4 rounded-lg bg-muted border-2 border-border flex items-center font-bold text-muted-foreground">
-                    {selectedBatchData?.unit || 'UND'}
+                    {selectedBatch?.unit?.toUpperCase() || 'UND'}
                   </div>
                 </div>
-                {selectedBatchData && (
+                {selectedBatch && (
                   <p className="text-xs text-muted-foreground mt-1">
-                    Máximo disponible: {selectedBatchData.quantity} {selectedBatchData.unit}
+                    Máximo disponible: {selectedBatch.available_balance.toFixed(2)} {selectedBatch.unit}
                   </p>
                 )}
               </div>
