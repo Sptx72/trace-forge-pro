@@ -160,9 +160,64 @@ export type Database = {
         }
         Relationships: []
       }
+      stock_movements: {
+        Row: {
+          created_at: string
+          id: string
+          lot_number: string
+          lot_type: string
+          movement_type: string
+          product: string
+          quantity: number
+          reference_id: string | null
+          reference_type: string | null
+          source_lot_id: string
+          unit: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          lot_number: string
+          lot_type: string
+          movement_type: string
+          product: string
+          quantity: number
+          reference_id?: string | null
+          reference_type?: string | null
+          source_lot_id: string
+          unit?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          lot_number?: string
+          lot_type?: string
+          movement_type?: string
+          product?: string
+          quantity?: number
+          reference_id?: string | null
+          reference_type?: string | null
+          source_lot_id?: string
+          unit?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
-      [_ in never]: never
+      stock_balances: {
+        Row: {
+          available_balance: number | null
+          lot_number: string | null
+          lot_type: string | null
+          product: string | null
+          source_lot_id: string | null
+          unit: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       [_ in never]: never
