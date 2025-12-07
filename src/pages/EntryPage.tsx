@@ -108,11 +108,19 @@ export default function EntryPage() {
         deliveryNoteUrl = await uploadFile(formData.deliveryNotePhoto, fileName);
       }
 
+      // Get user's obrador_id from profile
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('obrador_id')
+        .eq('user_id', user.id)
+        .single();
+
       // Insert entry lot into database
       const { data: entryLot, error } = await supabase
         .from('entry_lots')
         .insert({
           user_id: user.id,
+          obrador_id: profile?.obrador_id || null,
           lot_number: lotNumber,
           product: formData.product,
           supplier: formData.supplier,

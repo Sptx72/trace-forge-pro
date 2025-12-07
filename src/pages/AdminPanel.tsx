@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { 
   Search, Filter, FileDown, PackageOpen, Factory, PackageCheck, 
-  ChevronDown, Home, ArrowUpDown, Eye, LogOut, Loader2, Package
+  ChevronDown, Home, ArrowUpDown, Eye, LogOut, Loader2, Package, Trash2, Building2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,24 +19,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
-import { supabase } from '@/integrations/supabase/client';
-
-type RecordType = 'all' | 'entry' | 'production' | 'output';
-
-interface DisplayRecord {
-  id: string;
-  type: 'entry' | 'production' | 'output';
-  lotNumber: string;
-  product: string;
-  quantity: number;
-  unit: string;
-  date: Date;
-  supplier?: string;
-  operator?: string;
-  destination?: string;
-}
+import { useUserRole } from '@/hooks/useUserRole';
+import { useTraceabilityRecords, type RecordType, type DisplayRecord } from '@/hooks/useTraceabilityRecords';
 
 const typeConfig = {
   entry: { icon: PackageOpen, color: 'text-primary', bg: 'bg-primary/10', label: 'Entrada' },
@@ -47,75 +43,16 @@ const typeConfig = {
 export default function AdminPanel() {
   const { toast } = useToast();
   const { signOut } = useAuth();
+  const { isAdmin, obrador } = useUserRole();
+  const { records, loading, deleteRecord } = useTraceabilityRecords();
+  
   const [filter, setFilter] = useState<RecordType>('all');
   const [search, setSearch] = useState('');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [selectedRecord, setSelectedRecord] = useState<DisplayRecord | null>(null);
   const [showTraceDialog, setShowTraceDialog] = useState(false);
-  const [records, setRecords] = useState<DisplayRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetchAllRecords();
-  }, []);
-
-  const fetchAllRecords = async () => {
-    setLoading(true);
-    try {
-      const [entryRes, prodRes, outputRes] = await Promise.all([
-        supabase.from('entry_lots').select('*').order('created_at', { ascending: false }),
-        supabase.from('production_batches').select('*').order('created_at', { ascending: false }),
-        supabase.from('output_lots').select('*').order('created_at', { ascending: false }),
-      ]);
-
-      const allRecords: DisplayRecord[] = [];
-
-      (entryRes.data || []).forEach(lot => {
-        allRecords.push({
-          id: lot.id,
-          type: 'entry',
-          lotNumber: lot.lot_number,
-          product: lot.product,
-          quantity: lot.quantity,
-          unit: lot.unit,
-          date: new Date(lot.created_at),
-          supplier: lot.supplier,
-        });
-      });
-
-      (prodRes.data || []).forEach(batch => {
-        allRecords.push({
-          id: batch.id,
-          type: 'production',
-          lotNumber: batch.batch_number,
-          product: batch.product,
-          quantity: batch.quantity,
-          unit: batch.unit,
-          date: new Date(batch.created_at),
-          operator: batch.operator,
-        });
-      });
-
-      (outputRes.data || []).forEach(lot => {
-        allRecords.push({
-          id: lot.id,
-          type: 'output',
-          lotNumber: lot.lot_number,
-          product: '',
-          quantity: lot.quantity,
-          unit: lot.unit,
-          date: new Date(lot.created_at),
-          destination: lot.destination,
-        });
-      });
-
-      setRecords(allRecords);
-    } catch (error) {
-      console.error('Error fetching records:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [recordToDelete, setRecordToDelete] = useState<DisplayRecord | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const handleLogout = async () => {
     await signOut();
@@ -157,6 +94,18 @@ export default function AdminPanel() {
     setShowTraceDialog(true);
   };
 
+  const handleDeleteClick = (record: DisplayRecord) => {
+    setRecordToDelete(record);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!recordToDelete) return;
+    setDeleting(true);
+    await deleteRecord(recordToDelete);
+    setDeleting(false);
+    setRecordToDelete(null);
+  };
+
   const stats = {
     total: records.length,
     entry: records.filter(r => r.type === 'entry').length,
@@ -183,6 +132,14 @@ export default function AdminPanel() {
             </div>
             
             <div className="flex items-center gap-3">
+              {obrador && (
+                <div className="hidden lg:flex items-center gap-2 px-4 py-2 bg-primary/10 rounded-full border border-primary/30">
+                  <Building2 className="h-4 w-4 text-primary" />
+                  <span className="text-sm font-semibold text-primary">
+                    Obrador: {obrador.name}
+                  </span>
+                </div>
+              )}
               <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-success/10 rounded-full">
                 <div className="status-dot bg-success" />
                 <span className="text-sm font-medium text-success">Sistema Operativo</span>
@@ -368,6 +325,16 @@ export default function AdminPanel() {
                               <FileDown className="h-4 w-4 mr-1" />
                               PDF
                             </Button>
+                            {isAdmin && (
+                              <Button 
+                                variant="ghost" 
+                                size="sm"
+                                className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                                onClick={() => handleDeleteClick(record)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -434,6 +401,49 @@ export default function AdminPanel() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!recordToDelete} onOpenChange={() => setRecordToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-destructive flex items-center gap-2">
+              <Trash2 className="h-5 w-5" />
+              ADVERTENCIA: Eliminar Registro
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-base">
+              ¿Está seguro de eliminar este registro? 
+              <br />
+              <span className="font-mono-industrial text-foreground font-semibold">
+                {recordToDelete?.lotNumber}
+              </span>
+              <br /><br />
+              <span className="text-destructive font-medium">
+                La eliminación puede afectar la trazabilidad de otros lotes.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Eliminando...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Eliminar
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

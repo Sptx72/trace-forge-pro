@@ -1,24 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Search, PackageOpen, Factory, PackageCheck, Calendar, Loader2 } from 'lucide-react';
 import { MobileHeader } from '@/components/mobile/MobileHeader';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { supabase } from '@/integrations/supabase/client';
-import type { Tables } from '@/integrations/supabase/types';
-
-type RecordType = 'all' | 'entry' | 'production' | 'output';
-type EntryLot = Tables<'entry_lots'>;
-
-interface DisplayRecord {
-  id: string;
-  type: 'entry' | 'production' | 'output';
-  lotNumber: string;
-  product: string;
-  date: Date;
-  supplier?: string;
-  quantity?: number;
-  unit?: string;
-}
+import { useTraceabilityRecords, type RecordType } from '@/hooks/useTraceabilityRecords';
 
 const typeConfig = {
   entry: { icon: PackageOpen, color: 'text-primary', bg: 'bg-primary/10', label: 'Entrada' },
@@ -29,41 +14,7 @@ const typeConfig = {
 export default function HistoryPage() {
   const [filter, setFilter] = useState<RecordType>('all');
   const [search, setSearch] = useState('');
-  const [records, setRecords] = useState<DisplayRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetchRecords();
-  }, []);
-
-  const fetchRecords = async () => {
-    setLoading(true);
-    try {
-      const { data: entryLots, error } = await supabase
-        .from('entry_lots')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      const displayRecords: DisplayRecord[] = (entryLots || []).map((lot: EntryLot) => ({
-        id: lot.id,
-        type: 'entry' as const,
-        lotNumber: lot.lot_number,
-        product: lot.product,
-        date: new Date(lot.created_at),
-        supplier: lot.supplier,
-        quantity: lot.quantity,
-        unit: lot.unit,
-      }));
-
-      setRecords(displayRecords);
-    } catch (error) {
-      console.error('Error fetching records:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const { records, loading } = useTraceabilityRecords();
 
   const filteredRecords = records.filter(record => {
     const matchesType = filter === 'all' || record.type === filter;
