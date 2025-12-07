@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from './use-toast';
 import { useUserRole } from './useUserRole';
+import { useAuth } from './useAuth';
 
 export type RecordType = 'all' | 'entry' | 'production' | 'output';
 
@@ -21,16 +22,35 @@ export interface DisplayRecord {
 export function useTraceabilityRecords() {
   const { toast } = useToast();
   const { isAdmin } = useUserRole();
+  const { user } = useAuth();
   const [records, setRecords] = useState<DisplayRecord[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchAllRecords = useCallback(async () => {
+    if (!user) {
+      setRecords([]);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
       const [entryRes, prodRes, outputRes] = await Promise.all([
-        supabase.from('entry_lots').select('*').order('created_at', { ascending: false }),
-        supabase.from('production_batches').select('*').order('created_at', { ascending: false }),
-        supabase.from('output_lots').select('*, production_batches(product)').order('created_at', { ascending: false }),
+        supabase
+          .from('entry_lots')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('production_batches')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('output_lots')
+          .select('*, production_batches(product)')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false }),
       ]);
 
       const allRecords: DisplayRecord[] = [];
@@ -88,7 +108,7 @@ export function useTraceabilityRecords() {
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, [toast, user]);
 
   const deleteRecord = useCallback(async (record: DisplayRecord): Promise<boolean> => {
     if (!isAdmin) {

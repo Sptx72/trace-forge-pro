@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { PackageCheck, Truck, Check, Building2, Loader2 } from 'lucide-react';
 import { MobileHeader } from '@/components/mobile/MobileHeader';
 import { Button } from '@/components/ui/button';
@@ -26,13 +26,13 @@ export default function OutputPage() {
     destination: '',
   });
 
-  useEffect(() => {
-    fetchBatches();
-  }, []);
-
-  const fetchBatches = async () => {
+  const fetchBatches = useCallback(async () => {
+    if (!user) {
+      setLoading(false);
+      return;
+    }
     try {
-      const batches = await fetchAvailableProductionBatches();
+      const batches = await fetchAvailableProductionBatches(user.id);
       setProductionBatches(batches);
     } catch (error) {
       console.error('Error fetching production batches:', error);
@@ -44,7 +44,11 @@ export default function OutputPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [fetchAvailableProductionBatches, toast, user]);
+
+  useEffect(() => {
+    fetchBatches();
+  }, [fetchBatches]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

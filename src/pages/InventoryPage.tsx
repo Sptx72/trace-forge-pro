@@ -1,34 +1,40 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Package, Search, Filter, ArrowLeft, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Link } from 'react-router-dom';
 import { useStock, type StockBalance } from '@/hooks/useStock';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function InventoryPage() {
   const { fetchStockBalances } = useStock();
+  const { user } = useAuth();
   const [stockBalances, setStockBalances] = useState<StockBalance[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'entry' | 'production'>('all');
   const [showOnlyAvailable, setShowOnlyAvailable] = useState(true);
 
-  useEffect(() => {
-    loadStockBalances();
-  }, []);
-
-  const loadStockBalances = async () => {
+  const loadStockBalances = useCallback(async () => {
+    if (!user) {
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
-      const balances = await fetchStockBalances();
+      const balances = await fetchStockBalances(user.id);
       setStockBalances(balances);
     } catch (error) {
       console.error('Error loading stock balances:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [fetchStockBalances, user]);
+
+  useEffect(() => {
+    loadStockBalances();
+  }, [loadStockBalances]);
 
   const filteredBalances = stockBalances.filter(balance => {
     const matchesSearch = 
