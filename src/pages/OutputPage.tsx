@@ -100,9 +100,17 @@ export default function OutputPage() {
     const lotNumber = `SAL-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`;
     
     try {
+      // Get user's obrador_id from profile
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('obrador_id')
+        .eq('user_id', user.id)
+        .single();
+
       // Create output lot
       const { data: outputLot, error } = await supabase.from('output_lots').insert({
         user_id: user.id,
+        obrador_id: profile?.obrador_id || null,
         lot_number: lotNumber,
         production_batch_id: selectedBatch.source_lot_id,
         quantity: expeditQuantity,

@@ -142,9 +142,17 @@ export default function ProductionPage() {
     const outputQuantity = parseFloat(formData.outputQuantity);
     
     try {
+      // Get user's obrador_id from profile
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('obrador_id')
+        .eq('user_id', user.id)
+        .single();
+
       // Create production batch
       const { data: productionBatch, error } = await supabase.from('production_batches').insert({
         user_id: user.id,
+        obrador_id: profile?.obrador_id || null,
         batch_number: batchNumber,
         product: formData.product,
         quantity: outputQuantity,

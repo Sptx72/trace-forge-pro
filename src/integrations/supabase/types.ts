@@ -22,6 +22,7 @@ export type Database = {
           delivery_note_url: string | null
           id: string
           lot_number: string
+          obrador_id: string | null
           product: string
           quantity: number
           supplier: string
@@ -35,6 +36,7 @@ export type Database = {
           delivery_note_url?: string | null
           id?: string
           lot_number: string
+          obrador_id?: string | null
           product: string
           quantity: number
           supplier: string
@@ -48,11 +50,41 @@ export type Database = {
           delivery_note_url?: string | null
           id?: string
           lot_number?: string
+          obrador_id?: string | null
           product?: string
           quantity?: number
           supplier?: string
           unit?: string
           user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "entry_lots_obrador_id_fkey"
+            columns: ["obrador_id"]
+            isOneToOne: false
+            referencedRelation: "obradores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      obradores: {
+        Row: {
+          code: string
+          created_at: string
+          id: string
+          name: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          id?: string
+          name: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          id?: string
+          name?: string
         }
         Relationships: []
       }
@@ -62,6 +94,7 @@ export type Database = {
           destination: string
           id: string
           lot_number: string
+          obrador_id: string | null
           production_batch_id: string | null
           quantity: number
           unit: string
@@ -72,6 +105,7 @@ export type Database = {
           destination: string
           id?: string
           lot_number: string
+          obrador_id?: string | null
           production_batch_id?: string | null
           quantity: number
           unit?: string
@@ -82,12 +116,20 @@ export type Database = {
           destination?: string
           id?: string
           lot_number?: string
+          obrador_id?: string | null
           production_batch_id?: string | null
           quantity?: number
           unit?: string
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "output_lots_obrador_id_fkey"
+            columns: ["obrador_id"]
+            isOneToOne: false
+            referencedRelation: "obradores"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "output_lots_production_batch_id_fkey"
             columns: ["production_batch_id"]
@@ -103,6 +145,7 @@ export type Database = {
           created_at: string
           id: string
           input_lot_ids: string[]
+          obrador_id: string | null
           operator: string
           product: string
           quantity: number
@@ -114,6 +157,7 @@ export type Database = {
           created_at?: string
           id?: string
           input_lot_ids?: string[]
+          obrador_id?: string | null
           operator: string
           product: string
           quantity: number
@@ -125,13 +169,22 @@ export type Database = {
           created_at?: string
           id?: string
           input_lot_ids?: string[]
+          obrador_id?: string | null
           operator?: string
           product?: string
           quantity?: number
           unit?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "production_batches_obrador_id_fkey"
+            columns: ["obrador_id"]
+            isOneToOne: false
+            referencedRelation: "obradores"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       profiles: {
         Row: {
@@ -139,6 +192,7 @@ export type Database = {
           full_name: string | null
           id: string
           obrador_code: string | null
+          obrador_id: string | null
           updated_at: string
           user_id: string
         }
@@ -147,6 +201,7 @@ export type Database = {
           full_name?: string | null
           id?: string
           obrador_code?: string | null
+          obrador_id?: string | null
           updated_at?: string
           user_id: string
         }
@@ -155,10 +210,19 @@ export type Database = {
           full_name?: string | null
           id?: string
           obrador_code?: string | null
+          obrador_id?: string | null
           updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "profiles_obrador_id_fkey"
+            columns: ["obrador_id"]
+            isOneToOne: false
+            referencedRelation: "obradores"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       stock_movements: {
         Row: {
@@ -167,6 +231,7 @@ export type Database = {
           lot_number: string
           lot_type: string
           movement_type: string
+          obrador_id: string | null
           product: string
           quantity: number
           reference_id: string | null
@@ -181,6 +246,7 @@ export type Database = {
           lot_number: string
           lot_type: string
           movement_type: string
+          obrador_id?: string | null
           product: string
           quantity: number
           reference_id?: string | null
@@ -195,12 +261,39 @@ export type Database = {
           lot_number?: string
           lot_type?: string
           movement_type?: string
+          obrador_id?: string | null
           product?: string
           quantity?: number
           reference_id?: string | null
           reference_type?: string | null
           source_lot_id?: string
           unit?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stock_movements_obrador_id_fkey"
+            columns: ["obrador_id"]
+            isOneToOne: false
+            referencedRelation: "obradores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_roles: {
+        Row: {
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
           user_id?: string
         }
         Relationships: []
@@ -220,10 +313,17 @@ export type Database = {
       }
     }
     Functions: {
-      [_ in never]: never
+      get_user_obrador_id: { Args: { _user_id: string }; Returns: string }
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "operario"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -350,6 +450,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "operario"],
+    },
   },
 } as const

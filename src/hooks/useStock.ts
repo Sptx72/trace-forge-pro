@@ -18,9 +18,20 @@ export interface StockMovementInput {
   unit: string;
   product: string;
   user_id: string;
+  obrador_id?: string | null;
   reference_type?: 'production' | 'output';
   reference_id?: string;
 }
+
+// Helper to get user's obrador_id
+const getUserObradorId = async (userId: string): Promise<string | null> => {
+  const { data } = await supabase
+    .from('profiles')
+    .select('obrador_id')
+    .eq('user_id', userId)
+    .single();
+  return data?.obrador_id || null;
+};
 
 export const useStock = () => {
   // Fetch all stock balances
@@ -77,6 +88,7 @@ export const useStock = () => {
     unit: string,
     userId: string
   ) => {
+    const obradorId = await getUserObradorId(userId);
     await createStockMovement({
       lot_number: lotNumber,
       lot_type: 'entry',
@@ -86,6 +98,7 @@ export const useStock = () => {
       unit,
       product,
       user_id: userId,
+      obrador_id: obradorId,
     });
   };
 
@@ -98,6 +111,7 @@ export const useStock = () => {
     unit: string,
     userId: string
   ) => {
+    const obradorId = await getUserObradorId(userId);
     await createStockMovement({
       lot_number: batchNumber,
       lot_type: 'production',
@@ -107,6 +121,7 @@ export const useStock = () => {
       unit,
       product,
       user_id: userId,
+      obrador_id: obradorId,
     });
   };
 
@@ -116,6 +131,7 @@ export const useStock = () => {
     productionBatchId: string,
     userId: string
   ) => {
+    const obradorId = await getUserObradorId(userId);
     for (const consumption of consumptions) {
       await createStockMovement({
         lot_number: consumption.lotNumber,
@@ -126,6 +142,7 @@ export const useStock = () => {
         unit: consumption.unit,
         product: consumption.product,
         user_id: userId,
+        obrador_id: obradorId,
         reference_type: 'production',
         reference_id: productionBatchId,
       });
@@ -142,6 +159,7 @@ export const useStock = () => {
     outputLotId: string,
     userId: string
   ) => {
+    const obradorId = await getUserObradorId(userId);
     await createStockMovement({
       lot_number: lotNumber,
       lot_type: 'production',
@@ -151,6 +169,7 @@ export const useStock = () => {
       unit,
       product,
       user_id: userId,
+      obrador_id: obradorId,
       reference_type: 'output',
       reference_id: outputLotId,
     });
