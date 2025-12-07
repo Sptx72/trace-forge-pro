@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Factory, Plus, Check, Link2, Loader2 } from 'lucide-react';
 import { MobileHeader } from '@/components/mobile/MobileHeader';
 import { Button } from '@/components/ui/button';
@@ -37,13 +37,13 @@ export default function ProductionPage() {
     operator: '',
   });
 
-  useEffect(() => {
-    fetchLots();
-  }, []);
-
-  const fetchLots = async () => {
+  const fetchLots = useCallback(async () => {
+    if (!user) {
+      setLoading(false);
+      return;
+    }
     try {
-      const lots = await fetchAvailableEntryLots();
+      const lots = await fetchAvailableEntryLots(user.id);
       setAvailableLots(lots);
     } catch (error) {
       console.error('Error fetching entry lots:', error);
@@ -55,7 +55,11 @@ export default function ProductionPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [fetchAvailableEntryLots, toast, user]);
+
+  useEffect(() => {
+    fetchLots();
+  }, [fetchLots]);
 
   const toggleLot = (lot: StockBalance) => {
     setSelectedLots(prev => {

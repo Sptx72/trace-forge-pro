@@ -34,36 +34,51 @@ const getUserObradorId = async (userId: string): Promise<string | null> => {
 };
 
 export const useStock = () => {
-  // Fetch all stock balances
-  const fetchStockBalances = async (): Promise<StockBalance[]> => {
+  // Fetch all stock balances for the current user
+  const fetchStockBalances = async (userId: string): Promise<StockBalance[]> => {
     const { data, error } = await supabase
-      .from('stock_balances')
-      .select('*');
+      .from('stock_movements')
+      .select('*')
+      .eq('user_id', userId);
 
     if (error) {
       console.error('Error fetching stock balances:', error);
       throw error;
     }
 
-    return (data || []).map(item => ({
-      source_lot_id: item.source_lot_id,
-      lot_number: item.lot_number,
-      lot_type: item.lot_type as 'entry' | 'production',
-      product: item.product,
-      unit: item.unit,
-      available_balance: Number(item.available_balance),
-    }));
+    const balances = new Map<string, StockBalance>();
+
+    (data || []).forEach(item => {
+      const key = item.source_lot_id;
+      const existing = balances.get(key);
+      const delta = item.movement_type === 'positive' ? Number(item.quantity) : -Number(item.quantity);
+
+      if (existing) {
+        existing.available_balance += delta;
+      } else {
+        balances.set(key, {
+          source_lot_id: item.source_lot_id,
+          lot_number: item.lot_number,
+          lot_type: item.lot_type as 'entry' | 'production',
+          product: item.product,
+          unit: item.unit,
+          available_balance: delta,
+        });
+      }
+    });
+
+    return Array.from(balances.values()).filter(item => item.available_balance >= 0);
   };
 
   // Fetch entry lots with available stock (for production)
-  const fetchAvailableEntryLots = async (): Promise<StockBalance[]> => {
-    const balances = await fetchStockBalances();
+  const fetchAvailableEntryLots = async (userId: string): Promise<StockBalance[]> => {
+    const balances = await fetchStockBalances(userId);
     return balances.filter(b => b.lot_type === 'entry' && b.available_balance > 0);
   };
 
   // Fetch production batches with available stock (for output)
-  const fetchAvailableProductionBatches = async (): Promise<StockBalance[]> => {
-    const balances = await fetchStockBalances();
+  const fetchAvailableProductionBatches = async (userId: string): Promise<StockBalance[]> => {
+    const balances = await fetchStockBalances(userId);
     return balances.filter(b => b.lot_type === 'production' && b.available_balance > 0);
   };
 
